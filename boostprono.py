@@ -6,77 +6,55 @@ import os
 from datetime import datetime
 import shutil
 
-st.set_page_config(page_title="BoostProno – Analyseur de matchs", layout="wide")
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Boost Prono", layout="wide")
 
-# === Fichiers ===
 TEAMS_FILE = "teams_form.json"
 HISTORIQUE_FILE = "historique_pronos.json"
 BACKUP_DIR = "sauvegardes"
-
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
-# --- Pré-remplissage des équipes si le fichier n'existe pas ---
-if not os.path.exists(TEAMS_FILE):
-    teams_data = {
-        # Ligue 1
-        "Paris SG": {"last5":"v,v,n,d,v","goals_scored":60,"goals_against":20},
-        "Marseille": {"last5":"v,d,v,n,d","goals_scored":50,"goals_against":30},
-        "Lyon": {"last5":"n,v,d,v,d","goals_scored":48,"goals_against":32},
-        "Monaco": {"last5":"d,v,n,d,v","goals_scored":45,"goals_against":35},
-        "Rennes": {"last5":"v,n,d,v,n","goals_scored":42,"goals_against":36},
-        # Premier League
-        "Manchester City": {"last5":"v,v,v,v,v","goals_scored":70,"goals_against":20},
-        "Liverpool": {"last5":"v,v,n,d,v","goals_scored":65,"goals_against":25},
-        "Chelsea": {"last5":"n,v,d,v,d","goals_scored":50,"goals_against":30},
-        "Arsenal": {"last5":"v,d,v,v,n","goals_scored":55,"goals_against":28},
-        # Liga
-        "Real Madrid": {"last5":"v,v,d,v,v","goals_scored":60,"goals_against":22},
-        "Barcelona": {"last5":"v,d,v,n,v","goals_scored":58,"goals_against":25},
-        "Atletico Madrid": {"last5":"n,v,d,v,d","goals_scored":50,"goals_against":30},
-        "Sevilla": {"last5":"v,v,n,d,v","goals_scored":48,"goals_against":35}
-    }
-    with open(TEAMS_FILE, "w", encoding="utf-8") as f:
-        json.dump(teams_data, f, indent=2, ensure_ascii=False)
-else:
+# ---------------- BACKUP ----------------
+if os.path.exists(TEAMS_FILE):
+    date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    shutil.copy(TEAMS_FILE, os.path.join(BACKUP_DIR, f"teams_form_backup_{date_str}.json"))
+
+# ---------------- CHARGEMENT DES DONNEES ----------------
+if os.path.exists(TEAMS_FILE):
     with open(TEAMS_FILE, "r", encoding="utf-8") as f:
         teams_data = json.load(f)
+else:
+    teams_data = {}
 
-# --- Historique pronos ---
 if os.path.exists(HISTORIQUE_FILE):
     with open(HISTORIQUE_FILE, "r", encoding="utf-8") as f:
         historique = json.load(f)
 else:
     historique = []
 
-# === Sauvegarde automatique ===
-if os.path.exists(TEAMS_FILE):
-    date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    backup_file = os.path.join(BACKUP_DIR, f"teams_form_backup_{date_str}.json")
-    shutil.copy(TEAMS_FILE, backup_file)
+# ---------------- INTERFACE ----------------
+st.title("⚽ Boost Prono – Analyse avancée")
 
-# === Interface ===
-st.title("⚽ BoostProno – Analyseur de matchs avancé")
-
-# --- Gestion équipes ---
-st.header("🧾 Ajouter ou modifier une équipe")
+# --------- Gestion des équipes ----------
+st.header("🧾 Gestion des équipes")
 with st.form("form_teams"):
     team_name = st.text_input("Nom de l'équipe")
-    form_last5 = st.text_input("5 derniers matchs (ex: v,v,n,d,v)")
+    last5 = st.text_input("5 derniers matchs (ex: v,v,n,d,v)")
     goals_scored = st.number_input("Buts marqués", 0, 200, 0)
     goals_against = st.number_input("Buts encaissés", 0, 200, 0)
     submitted_team = st.form_submit_button("💾 Enregistrer l'équipe")
 
 if submitted_team and team_name:
     teams_data[team_name] = {
-        "last5": form_last5.lower(),
+        "last5": last5.lower(),
         "goals_scored": goals_scored,
         "goals_against": goals_against
     }
     with open(TEAMS_FILE, "w", encoding="utf-8") as f:
         json.dump(teams_data, f, indent=2, ensure_ascii=False)
-    st.success(f"✅ {team_name} enregistrée")
+    st.success(f"✅ {team_name} enregistrée.")
 
-# --- Ajouter un pronostic ---
+# --------- Ajouter un pronostic ----------
 st.header("📊 Ajouter un pronostic")
 if teams_data:
     col1, col2 = st.columns(2)
@@ -89,31 +67,37 @@ if teams_data:
     cote_away = st.number_input("Cote Extérieure", 1.01, 20.0, 2.8)
 
     if st.button("➕ Analyser & Sauvegarder le pronostic"):
-        # --- Calcul probabilité ---
+        # --------- Algorithme amélioré ---------
         def form_score(seq):
             mapping = {"v":3,"n":1,"d":0}
             vals = [mapping.get(x.strip(),0) for x in seq.split(",") if x.strip() in mapping]
             vals = vals[-5:] if len(vals) > 5 else vals
-            weights = np.array([5,4,3,2,1])[:len(vals)]
-            return np.dot(vals, weights)/(15 if len(vals)==5 else sum(weights))
+            weights = np.array([5,4,3,2,1][:len(vals)])
+            return np.dot(vals, weights)/sum(weights)
 
-        form_home = form_score(teams_data[home_team]["last5"])
-        form_away = form_score(teams_data[away_team]["last5"])
+        def improved_prob(home, away, cote_h, cote_a):
+            fh = form_score(home["last5"])
+            fa = form_score(away["last5"])
+            # Ratio attaque/défense
+            home_attack = home["goals_scored"] / max(home["goals_scored"] + away["goals_against"], 1)
+            away_attack = away["goals_scored"] / max(away["goals_scored"] + home["goals_against"], 1)
+            # Score combiné
+            score_home = 0.5*fh + 0.25*home_attack + 0.25*(1-away_attack)
+            score_away = 0.5*fa + 0.25*away_attack + 0.25*(1-home_attack)
+            # Probabilité selon cote
+            p_home_odds = 1 / cote_h
+            p_away_odds = 1 / cote_a
+            # Fusion
+            prob_home = 0.6*score_home + 0.4*p_home_odds
+            prob_away = 0.6*score_away + 0.4*p_away_odds
+            total = prob_home + prob_away
+            return prob_home/total, prob_away/total
 
-        # Probabilités implicites des cotes
-        p_home_odds = 1 / cote_home
-        p_away_odds = 1 / cote_away
-
-        # Fusion cotes et forme
-        prob_home = p_home_odds * 0.7 + form_home * 0.3
-        prob_away = p_away_odds * 0.7 + form_away * 0.3
-        total = prob_home + prob_away
-        prob_home /= total
-        prob_away /= total
-
-        winner = home_team if prob_home > prob_away else away_team
-        prob_victoire = round(max(prob_home, prob_away)*100,2)
+        ph, pa = improved_prob(teams_data[home_team], teams_data[away_team], cote_home, cote_away)
+        winner = home_team if ph>pa else away_team
+        prob_victoire = round(max(ph, pa)*100,2)
         mise = 10
+        gain = 0
 
         pronostic = {
             "home_team": home_team,
@@ -124,62 +108,42 @@ if teams_data:
             "prob_victoire": prob_victoire,
             "mise": mise,
             "resultat": None,
-            "gain": 0
+            "gain": gain
         }
+
         historique.append(pronostic)
         with open(HISTORIQUE_FILE, "w", encoding="utf-8") as f:
             json.dump(historique, f, indent=2, ensure_ascii=False)
-        st.success(f"✅ Pronostic enregistré : {winner} ({prob_victoire}%)")
+        st.success(f"✅ Pronostic ajouté : victoire de {winner} ({prob_victoire}%)")
+else:
+    st.warning("⚠️ Ajoute d'abord des équipes.")
 
-# --- Suivi résultats ---
-st.header("📅 Suivi des pronostics")
-
+# --------- Suivi des résultats ----------
+st.header("📅 Suivi des résultats & statistiques")
 if historique:
     df = pd.DataFrame(historique)
-    st.dataframe(df[["home_team","away_team","winner_pred","prob_victoire","resultat","gain"]])
+    st.dataframe(df[["home_team","away_team","winner_pred","prob_victoire","resultat","gain"]], use_container_width=True)
 
-    st.subheader("📝 Mettre à jour le résultat réel")
-    match_index = st.selectbox("Sélectionner un match", range(len(historique)),
+    st.subheader("📝 Mettre à jour le résultat d’un match")
+    match_index = st.selectbox("Sélectionne un match", range(len(historique)),
                                format_func=lambda i: f"{historique[i]['home_team']} vs {historique[i]['away_team']}")
     resultat = st.selectbox("Résultat réel", ["home","draw","away"])
-    if st.button("✅ Enregistrer le résultat réel"):
+    if st.button("✅ Enregistrer résultat réel"):
         prono = historique[match_index]
-        cote = prono["cote_home"] if prono["winner_pred"]==prono["home_team"] else prono["cote_away"]
-
-        # Calcul du gain
+        cote = prono["cote_home"] if prono["winner_pred"] == prono["home_team"] else prono["cote_away"]
+        # Calcul gain
         if (resultat=="home" and prono["winner_pred"]==prono["home_team"]) or \
            (resultat=="away" and prono["winner_pred"]==prono["away_team"]):
             gain = round(prono["mise"]*cote - prono["mise"],2)
         else:
             gain = -prono["mise"]
-
         prono["resultat"] = resultat
         prono["gain"] = gain
-        with open(HISTORIQUE_FILE,"w",encoding="utf-8") as f:
-            json.dump(historique,f,indent=2,ensure_ascii=False)
+        with open(HISTORIQUE_FILE, "w", encoding="utf-8") as f:
+            json.dump(historique,f, indent=2, ensure_ascii=False)
         st.success(f"Résultat enregistré ✅ (gain : {gain}€)")
 
-        # --- Mise à jour automatique des 5 derniers matchs ---
-        home_seq = teams_data[prono["home_team"]]["last5"].split(",")[:4]
-        away_seq = teams_data[prono["away_team"]]["last5"].split(",")[:4]
-        if resultat=="home":
-            home_seq = ["v"] + home_seq
-            away_seq = ["d"] + away_seq
-        elif resultat=="away":
-            home_seq = ["d"] + home_seq
-            away_seq = ["v"] + away_seq
-        else:
-            home_seq = ["n"] + home_seq
-            away_seq = ["n"] + away_seq
-        teams_data[prono["home_team"]]["last5"] = ",".join(home_seq)
-        teams_data[prono["away_team"]]["last5"] = ",".join(away_seq)
-
-        # Sauvegarde équipes
-        with open(TEAMS_FILE,"w",encoding="utf-8") as f:
-            json.dump(teams_data,f,indent=2,ensure_ascii=False)
-        st.success("✅ Forme des équipes mise à jour automatiquement")
-
-    # --- Statistiques ---
+    # Statistiques
     df_valides = df[df["resultat"].notna()]
     if not df_valides.empty:
         total_gain = df_valides["gain"].sum()
@@ -198,4 +162,4 @@ if historique:
                        "historique_pronos.csv",
                        "text/csv")
 else:
-    st.info("Aucun pronostic enregistré pour le moment.")
+    st.info("Aucun pronostic enregistré.")
